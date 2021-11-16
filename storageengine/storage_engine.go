@@ -102,6 +102,7 @@ func (o *object) GetPassword() string {
 }
 
 func (o *object) Refresh() error {
+	// Make sure there are no zero-value calls
 	if o.id == "" || o.currPass == "" {
 		return errors.New("id or pass is empty")
 	}

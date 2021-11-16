@@ -3,6 +3,7 @@ package storageengine_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"testing"
@@ -12,21 +13,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type readRequest struct {
-	ID   string `json:"id" bson:"id"`
-	Pass string `json:"pass" bson:"id"`
+type httpClientDo func(req *http.Request) (*http.Response, error)
+
+type httpMock struct {
+	logic httpClientDo
 }
 
-type readResponse struct {
-	ID   string `json:"id" bson:"id"`
-	Note string `json:"note" bson:"note"`
+func (h httpMock) Do(req *http.Request) (*http.Response, error) {
+	return h.logic(req)
 }
 
 type mockHttpClient struct {
 	testType string
 	endpoint string
-	reqComp  interface{}
-	resComp  interface{}
 }
 
 func (m mockHttpClient) Do(req *http.Request) (*http.Response, error) {
@@ -38,42 +37,12 @@ func (m mockHttpClient) Do(req *http.Request) (*http.Response, error) {
 			}, nil
 		}
 		return nil, nil
-	case "upstream":
-		if req.URL.String() == m.endpoint {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-			}, nil
-		}
-		if req.URL.String() == m.endpoint+"/read" && req.Method == http.MethodGet {
-			b, err := ioutil.ReadAll(req.Body)
-			if err != nil {
-				return nil, err
-			}
-			var rr readRequest
-			err = json.Unmarshal(b, &rr)
-			if err != nil {
-				return nil, err
-			}
-			d, _ := json.Marshal(m.resComp.(readResponse))
-			if rr == m.reqComp.(readRequest) {
-				b := ioutil.NopCloser(bytes.NewReader(d))
-				x := &http.Response{
-					StatusCode: http.StatusOK,
-					Body:       b,
-				}
-				return x, nil
-			}
-		}
 	}
 	return nil, nil
 }
 
 func newMockHTTPClient(endpoint string) mockHttpClient {
 	return mockHttpClient{endpoint: endpoint, testType: "local"}
-}
-
-func newUpstreamMockHTTPClient(endpoint string, reqComp interface{}, resComp interface{}) mockHttpClient {
-	return mockHttpClient{endpoint: endpoint, testType: "upstream", reqComp: reqComp, resComp: resComp}
 }
 
 func TestNewClientConfig(t *testing.T) {
@@ -168,20 +137,94 @@ func TestObjectSetPass(t *testing.T) {
 
 func TestObjectRefresh(t *testing.T) {
 	endpoint := "https://storage-engine.example.com"
-	mockReq := readRequest{
-		ID:   "wow",
-		Pass: "hello",
+
+	// Required Types for test
+	type readRequest struct {
+		ID   string `json:"id" bson:"id"`
+		Pass string `json:"pass" bson:"id"`
 	}
-	mockRes := readResponse{
-		ID:   "wow",
-		Note: "hello i am awesome",
+	type readResponse struct {
+		ID   string `json:"id" bson:"id"`
+		Note string `json:"note" bson:"note"`
 	}
-	// Successfully fetch data from storage engine
-	valid_cc1, _ := storageengine.NewClientConfig(newUpstreamMockHTTPClient(endpoint, mockReq, mockRes), endpoint)
+
+	// Successfully fetch data from storage engine	
+	note_1 := "hello i am awesome"
+	x_1 := func(req *http.Request) (*http.Response, error) {
+		// This makes the valid_cc generate else it be nil
+		if req.URL.String() == endpoint {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+			}, nil
+		}
+		// Test related code
+		req_1 := readRequest{
+			ID:   "wow",
+			Pass: "hello",
+		}
+		res_1 := readResponse{
+			ID:   "wow",
+			Note: note_1,
+		}
+		req_1_bytes, _ := json.Marshal(req_1)
+		res_1_bytes, _ := json.Marshal(res_1)
+		if req.URL.String() == endpoint+"/read" && req.Method == http.MethodGet {
+			req_bytes, err := ioutil.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			if bytes.Equal(req_bytes, req_1_bytes) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body: ioutil.NopCloser(bytes.NewReader(res_1_bytes)),
+				}, nil
+			}
+		}
+		return nil, errors.New("something horrible must have happened here")
+	}
+	valid_cc1, _ := storageengine.NewClientConfig(httpMock{logic: x_1}, endpoint)
 	obj_1, _ := storageengine.NewObject(valid_cc1)
 	obj_1.SetID("wow")
 	obj_1.SetPassword("hello")
 	err_1 := obj_1.Refresh()
 	assert.Nil(t, err_1)
-	assert.Equal(t, mockRes.Note, obj_1.GetData())
+	assert.Equal(t, note_1, obj_1.GetData())
+
+	// Don't crash even when response error and res are nil
+	x_2 := func(req *http.Request) (*http.Response, error) {
+		// This makes the valid_cc generate else it be nil
+		if req.URL.String() == endpoint {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+			}, nil
+		}
+		// Test related code
+		return nil, nil
+	}
+	valid_cc2, _ := storageengine.NewClientConfig(httpMock{logic: x_2}, endpoint)
+	obj_2, _ := storageengine.NewObject(valid_cc2)
+	obj_2.SetID("y24786*(5")
+	obj_2.SetPassword("14/-/*-+")
+	err_2 := obj_2.Refresh()
+	assert.NotNil(t, err_2)
+
+	// Handle bad request response
+	x_3 := func(req *http.Request) (*http.Response, error) {
+		// This makes the valid_cc generate else it be nil
+		if req.URL.String() == endpoint {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+			}, nil
+		}
+		// Test related code
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+		}, nil
+	}
+	valid_cc3, _ := storageengine.NewClientConfig(httpMock{logic: x_3}, endpoint)
+	obj_3, _ := storageengine.NewObject(valid_cc3)
+	obj_3.SetID("234y_+l:w|><>/")
+	obj_3.SetPassword("687/-/*32fb&**")
+	err_3 := obj_3.Refresh()
+	assert.NotNil(t, err_3)
 }
