@@ -12,19 +12,20 @@ import (
 )
 
 type HttpClient interface {
-	Do (req *http.Request) (*http.Response, error)
+	Do(req *http.Request) (*http.Response, error)
 }
 
-type clientConfig struct{
+type clientConfig struct {
 	httpClient HttpClient
-	endpoint string
+	endpoint   string
 }
 
-type object struct{
-	cc *clientConfig
-	id string
-	data string
-	currPass string
+type object struct {
+	cc         *clientConfig
+	id         string
+	data       string
+	currPass   string
+	isUpstream bool
 }
 
 func NewClientConfig(httpClient HttpClient, endpoint string) (*clientConfig, error) {
@@ -38,7 +39,7 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*clientConfig, err
 	}
 	// Do a GET on base endpoint expecting a StatusOK
 	req := http.Request{
-		URL: endpointURL,
+		URL:    endpointURL,
 		Method: http.MethodGet,
 	}
 	resp, err := httpClient.Do(&req)
@@ -53,7 +54,7 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*clientConfig, err
 	}
 	return &clientConfig{
 		httpClient: httpClient,
-		endpoint: endpoint,
+		endpoint:   endpoint,
 	}, nil
 }
 
@@ -96,7 +97,6 @@ func (o *object) SetPassword(password string) error {
 	return nil
 }
 
-
 func (o *object) GetPassword() string {
 	return o.currPass
 }
@@ -104,24 +104,24 @@ func (o *object) GetPassword() string {
 func (o *object) Refresh() error {
 	// Make sure there are no zero-value calls
 	if o.id == "" || o.currPass == "" {
-		return errors.New("id or pass is empty")
+		return errors.New("id or pass are empty")
 	}
 	reqData := ReadRequest{
-		ID: o.id,
+		ID:   o.id,
 		Pass: o.currPass,
 	}
 	data, err := json.Marshal(reqData)
 	if err != nil {
 		return err
 	}
-	endpointURL, err := url.Parse(o.cc.endpoint+"/read")
+	endpointURL, err := url.Parse(o.cc.endpoint + "/read")
 	if err != nil {
 		return err
 	}
 	req := &http.Request{
-		URL: endpointURL,
+		URL:    endpointURL,
 		Method: http.MethodGet,
-		Body: io.NopCloser(bytes.NewReader(data)),
+		Body:   io.NopCloser(bytes.NewReader(data)),
 	}
 	res, err := o.cc.httpClient.Do(req)
 	if err != nil {
@@ -144,6 +144,65 @@ func (o *object) Refresh() error {
 	if err != nil {
 		return err
 	}
-	o.data = response.Note	
+	o.data = response.Note
+	o.isUpstream = true
+	return nil
+}
+
+func (o *object) Publish() error {
+	// Make sure there are no zero-value calls
+	// Storage Engine supports empty ID
+	if o.currPass == "" || o.data == "" {
+		return errors.New("data or pass are empty")
+	}
+	reqData := PublishRequest{
+		ID:   o.id,
+		Pass: o.currPass,
+		Note: o.data,
+	}
+	data, err := json.Marshal(reqData)
+	if err != nil {
+		return err
+	}
+	var endpointURL *url.URL
+	var method string
+	if !o.isUpstream {
+		endpointURL, err = url.Parse(o.cc.endpoint + "/create")
+		method = http.MethodPost
+	} else {
+		endpointURL, err = url.Parse(o.cc.endpoint + "/update")
+		method = http.MethodPut
+	}
+	if err != nil {
+		return err
+	}
+	req := &http.Request{
+		URL:    endpointURL,
+		Method: method,
+		Body:   io.NopCloser(bytes.NewReader(data)),
+	}
+	res, err := o.cc.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if res == nil {
+		return errors.New("response is nil")
+	}
+	// Check status OK before reading data
+	// Storage Engine only sends data on OK
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("response status not ok: %d", res.StatusCode)
+	}
+	data, err = ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	var response PublishResponse
+	err = json.Unmarshal(data, &response)
+	if err != nil {
+		return err
+	}
+	o.id = response.ID
+	o.isUpstream = true
 	return nil
 }

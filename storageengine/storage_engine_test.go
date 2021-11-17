@@ -148,7 +148,7 @@ func TestObjectRefresh(t *testing.T) {
 		Note string `json:"note" bson:"note"`
 	}
 
-	// Successfully fetch data from storage engine	
+	// Successfully fetch data from storage engine
 	note_1 := "hello i am awesome"
 	x_1 := func(req *http.Request) (*http.Response, error) {
 		// This makes the valid_cc generate else it be nil
@@ -176,7 +176,7 @@ func TestObjectRefresh(t *testing.T) {
 			if bytes.Equal(req_bytes, req_1_bytes) {
 				return &http.Response{
 					StatusCode: http.StatusOK,
-					Body: ioutil.NopCloser(bytes.NewReader(res_1_bytes)),
+					Body:       ioutil.NopCloser(bytes.NewReader(res_1_bytes)),
 				}, nil
 			}
 		}
@@ -227,4 +227,94 @@ func TestObjectRefresh(t *testing.T) {
 	obj_3.SetPassword("687/-/*32fb&**")
 	err_3 := obj_3.Refresh()
 	assert.NotNil(t, err_3)
+}
+
+func TestObjectPublish(t *testing.T) {
+	endpoint := "https://storage-engine.example.com"
+
+	type createRequest struct {
+		ID   string `json:"id" bson:"id"`
+		Pass string `json:"pass" bson:"pass"`
+		Note string `json:"note" bson:"note"`
+	}
+	type createResponse struct {
+		ID string `json:"id" bson:"id"`
+	}
+
+	// Successfully create a new note
+	var req_checked_out_1 bool
+	var req_checked_out_1_2 bool
+	x_1 := func(req *http.Request) (*http.Response, error) {
+		// This makes the valid_cc generate else it be nil
+		if req.URL.String() == endpoint {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+			}, nil
+		}
+
+		req_1 := createRequest{
+			ID:   "wow",
+			Pass: "02_+",
+			Note: "heyo",
+		}
+		// Simulate StorageEngine sending back a different ID
+		res_1 := createResponse{
+			ID: "wo2",
+		}
+		req_1_bytes, _ := json.Marshal(req_1)
+		res_1_bytes, _ := json.Marshal(res_1)
+		// Test related code
+		if req.URL.String() == endpoint+"/create" && req.Method == http.MethodPost {
+			req_bytes, err := ioutil.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			if bytes.Equal(req_bytes, req_1_bytes) {
+				req_checked_out_1 = true
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       ioutil.NopCloser(bytes.NewReader(res_1_bytes)),
+				}, nil
+			}
+		}
+
+		req_2 := createRequest{
+			ID:   "wo2",
+			Pass: "02_+",
+			Note: "what's that function",
+		}
+		req_2_bytes, _ := json.Marshal(req_2)
+		// Test related code
+		if req.URL.String() == endpoint+"/update" && req.Method == http.MethodPut {
+			req_bytes, err := ioutil.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			if bytes.Equal(req_bytes, req_2_bytes) {
+				req_checked_out_1_2 = true
+				// Reuse response from previous call
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       ioutil.NopCloser(bytes.NewReader(res_1_bytes)),
+				}, nil
+			}
+		}
+		return nil, errors.New("something horrible must have happened here")
+	}
+	valid_cc1, _ := storageengine.NewClientConfig(httpMock{logic: x_1}, endpoint)
+	obj_1, _ := storageengine.NewObject(valid_cc1)
+	obj_1.SetID("wow")
+	obj_1.SetPassword("02_+")
+	obj_1.SetData("heyo")
+	err_1 := obj_1.Publish()
+	assert.Nil(t, err_1)
+	assert.Equal(t, "wo2", obj_1.GetID())
+	assert.Equal(t, true, req_checked_out_1)
+
+	// Try to update the just created note
+	obj_1.SetData("what's that function")
+	err_1_2 := obj_1.Publish()
+	assert.Nil(t, err_1_2)
+	assert.Equal(t, "what's that function", obj_1.GetData())
+	assert.Equal(t, true, req_checked_out_1_2)
 }
