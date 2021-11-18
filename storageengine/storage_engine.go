@@ -15,20 +15,20 @@ type HttpClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-type clientConfig struct {
+type ClientConfig struct {
 	httpClient HttpClient
 	endpoint   string
 }
 
-type object struct {
-	cc         *clientConfig
+type Object struct {
+	cc         *ClientConfig
 	id         string
 	data       string
 	currPass   string
 	isUpstream bool
 }
 
-func NewClientConfig(httpClient HttpClient, endpoint string) (*clientConfig, error) {
+func NewClientConfig(httpClient HttpClient, endpoint string) (*ClientConfig, error) {
 	if endpoint == "" {
 		return nil, errors.New("endpoint cannot be empty")
 	}
@@ -52,20 +52,20 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*clientConfig, err
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("response status code not ok: %d", resp.StatusCode)
 	}
-	return &clientConfig{
+	return &ClientConfig{
 		httpClient: httpClient,
 		endpoint:   endpoint,
 	}, nil
 }
 
-func NewObject(clientConfig *clientConfig) (*object, error) {
+func NewObject(clientConfig *ClientConfig) (*Object, error) {
 	if clientConfig == nil {
 		return nil, errors.New("clientconfig is not nillable")
 	}
-	return &object{cc: clientConfig}, nil
+	return &Object{cc: clientConfig}, nil
 }
 
-func (o *object) SetID(id string) error {
+func (o *Object) SetID(id string) error {
 	if id == "" {
 		return errors.New("id cannot be empty")
 	}
@@ -73,11 +73,11 @@ func (o *object) SetID(id string) error {
 	return nil
 }
 
-func (o *object) GetID() string {
+func (o *Object) GetID() string {
 	return o.id
 }
 
-func (o *object) SetData(data string) error {
+func (o *Object) SetData(data string) error {
 	if data == "" {
 		return errors.New("data cannot be empty")
 	}
@@ -85,11 +85,11 @@ func (o *object) SetData(data string) error {
 	return nil
 }
 
-func (o *object) GetData() string {
+func (o *Object) GetData() string {
 	return o.data
 }
 
-func (o *object) SetPassword(password string) error {
+func (o *Object) SetPassword(password string) error {
 	if password == "" {
 		return errors.New("password cannot be empty")
 	}
@@ -97,11 +97,11 @@ func (o *object) SetPassword(password string) error {
 	return nil
 }
 
-func (o *object) GetPassword() string {
+func (o *Object) GetPassword() string {
 	return o.currPass
 }
 
-func (o *object) Refresh() error {
+func (o *Object) Refresh() error {
 	// Make sure there are no zero-value calls
 	if o.id == "" || o.currPass == "" {
 		return errors.New("id or pass are empty")
@@ -149,7 +149,7 @@ func (o *object) Refresh() error {
 	return nil
 }
 
-func (o *object) Publish() error {
+func (o *Object) Publish() error {
 	// Make sure there are no zero-value calls
 	// Storage Engine supports empty ID
 	if o.currPass == "" || o.data == "" {
