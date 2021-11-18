@@ -170,7 +170,7 @@ func (o *Object) Publish() error {
 		endpointURL, err = url.Parse(o.cc.endpoint + "/create")
 		method = http.MethodPost
 	} else {
-		endpointURL, err = url.Parse(o.cc.endpoint + "/update")
+		endpointURL, err = url.Parse(o.cc.endpoint + "/update/note")
 		method = http.MethodPut
 	}
 	if err != nil {

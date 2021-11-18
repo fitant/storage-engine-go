@@ -285,7 +285,7 @@ func TestObjectPublish(t *testing.T) {
 		}
 		req_2_bytes, _ := json.Marshal(req_2)
 		// Test related code
-		if req.URL.String() == endpoint+"/update" && req.Method == http.MethodPut {
+		if req.URL.String() == endpoint+"/update/note" && req.Method == http.MethodPut {
 			req_bytes, err := ioutil.ReadAll(req.Body)
 			if err != nil {
 				return nil, err
