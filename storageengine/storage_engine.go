@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 )
+
+var ErrObjectNotFound = errors.New("storage engine object not found")
 
 type HttpClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -28,7 +29,14 @@ type Object struct {
 	isUpstream bool
 }
 
+func NewClientConfigDefaultClient(endpoint string) (*ClientConfig, error) {
+	return NewClientConfig(http.DefaultClient, endpoint)
+}
+
 func NewClientConfig(httpClient HttpClient, endpoint string) (*ClientConfig, error) {
+	if httpClient == nil {
+		return nil, errors.New("http client cannot be nil")
+	}
 	if endpoint == "" {
 		return nil, errors.New("endpoint cannot be empty")
 	}
@@ -36,6 +44,9 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*ClientConfig, err
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
+	}
+	if endpointURL.Scheme == "" || endpointURL.Host == "" {
+		return nil, errors.New("endpoint must be an absolute URL")
 	}
 	// Do a GET on base endpoint expecting a StatusOK
 	req := http.Request{
@@ -49,6 +60,9 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*ClientConfig, err
 	if resp == nil {
 		return nil, errors.New("response is nil")
 	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("response status code not ok: %d", resp.StatusCode)
 	}
@@ -60,7 +74,7 @@ func NewClientConfig(httpClient HttpClient, endpoint string) (*ClientConfig, err
 
 func NewObject(clientConfig *ClientConfig) (*Object, error) {
 	if clientConfig == nil {
-		return nil, errors.New("clientconfig is not nillable")
+		return nil, errors.New("clientConfig cannot be nil")
 	}
 	return &Object{cc: clientConfig}, nil
 }
@@ -69,6 +83,12 @@ func (o *Object) SetID(id string) error {
 	if id == "" {
 		return errors.New("id cannot be empty")
 	}
+
+	if o.id != id {
+		o.isUpstream = false
+		o.data = ""
+	}
+
 	o.id = id
 	return nil
 }
@@ -121,7 +141,10 @@ func (o *Object) Refresh() error {
 	req := &http.Request{
 		URL:    endpointURL,
 		Method: http.MethodGet,
-		Body:   io.NopCloser(bytes.NewReader(data)),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: io.NopCloser(bytes.NewReader(data)),
 	}
 	res, err := o.cc.httpClient.Do(req)
 	if err != nil {
@@ -130,12 +153,18 @@ func (o *Object) Refresh() error {
 	if res == nil {
 		return errors.New("response is nil")
 	}
+	if res.Body != nil {
+		defer res.Body.Close()
+	}
 	// Check status OK before reading data
 	// Storage Engine only sends data on OK
 	if res.StatusCode != http.StatusOK {
+		if res.StatusCode == http.StatusNotFound {
+			return ErrObjectNotFound
+		}
 		return fmt.Errorf("response status not ok: %d", res.StatusCode)
 	}
-	data, err = ioutil.ReadAll(res.Body)
+	data, err = io.ReadAll(res.Body)
 	if err != nil {
 		return err
 	}
@@ -179,7 +208,10 @@ func (o *Object) Publish() error {
 	req := &http.Request{
 		URL:    endpointURL,
 		Method: method,
-		Body:   io.NopCloser(bytes.NewReader(data)),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: io.NopCloser(bytes.NewReader(data)),
 	}
 	res, err := o.cc.httpClient.Do(req)
 	if err != nil {
@@ -188,12 +220,15 @@ func (o *Object) Publish() error {
 	if res == nil {
 		return errors.New("response is nil")
 	}
+	if res.Body != nil {
+		defer res.Body.Close()
+	}
 	// Check status OK before reading data
 	// Storage Engine only sends data on OK
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("response status not ok: %d", res.StatusCode)
 	}
-	data, err = ioutil.ReadAll(res.Body)
+	data, err = io.ReadAll(res.Body)
 	if err != nil {
 		return err
 	}

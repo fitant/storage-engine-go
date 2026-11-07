@@ -2,7 +2,7 @@ package storageengine
 
 type ReadRequest struct {
 	ID   string `json:"id" bson:"id"`
-	Pass string `json:"pass" bson:"id"`
+	Pass string `json:"pass" bson:"pass"`
 }
 
 type ReadResponse struct {
@@ -19,4 +19,3 @@ type PublishRequest struct {
 type PublishResponse struct {
 	ID string `json:"id" bson:"id"`
 }
-
